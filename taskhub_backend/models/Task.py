@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from db.db import Base
-from sqlalchemy import Column, DateTime, Enum, Integer, JSON, String
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, JSON, String
 
 
 class TaskStatus(str, enum.Enum):
@@ -35,7 +35,8 @@ class Task(Base):
         index=True,
     )
 
-    org_id = Column(Integer, nullable=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    created_by_id = Column(Integer, ForeignKey("users._id"), nullable=True, index=True)
     tags = Column(JSON, default=list, nullable=False)
 
     due_date = Column(DateTime(timezone=True), nullable=True)

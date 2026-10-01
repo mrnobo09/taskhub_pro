@@ -17,18 +17,17 @@ def decode_cursor(cursor: str):
     return datetime.fromisoformat(time_str), int(id_str)
 
 def apply_rbac_scope(query, user: User, scope: Optional[str] = None):
-    """
-    Enforces access rules based on user role:
-    - ADMIN: sees everything, unless they explicitly pass scope='org' to filter to their own org.
-    - MANAGER & USER: locked strictly to their org_id.
-    """
     if user.role == UserRole.ADMIN:
         if scope == "org" and user.org_id is not None:
             return query.filter(Task.org_id == user.org_id)
         return query
 
+    if user.role == UserRole.MANAGER:
+        if user.org_id is None:
+            return query.filter(False)
+        return query.filter(Task.org_id == user.org_id)
 
-    return query.filter(Task.org_id == user.org_id)
+    return query.filter(Task.created_by_id == user._id)
 
 def get_tasks(
     db: Session,
@@ -57,7 +56,6 @@ def get_tasks(
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
         query = query.filter(Task.tags.contains(tag_list))
 
-    # 3. Cursor Pagination (updated_at DESC, _id DESC)
     if cursor:
         cursor_time, cursor_id = decode_cursor(cursor)
         query = query.filter(
@@ -76,8 +74,11 @@ def get_tasks(
     return tasks, next_cursor
 
 def create_task(db: Session, task_in: TaskCreate, user: User):
-    # Tasks are assigned to the creator's organization
-    new_task = Task(**task_in.model_dump(), org_id=user.org_id)
+    new_task = Task(
+        **task_in.model_dump(),
+        org_id=user.org_id,
+        created_by_id=user._id,
+    )
     db.add(new_task)
     db.commit()
     db.refresh(new_task)

@@ -48,7 +48,12 @@ def list_tasks(
     )
     return {"data": tasks, "next_cursor": next_cursor}
 
-@router.post("", response_model=schemas.TaskOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=schemas.TaskOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.USER, UserRole.ADMIN))],
+)
 def create_task(
     task_in: schemas.TaskCreate,
     db: Session = Depends(get_db),

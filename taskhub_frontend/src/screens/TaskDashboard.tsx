@@ -45,6 +45,15 @@ function formattedDate(date: string | null) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(date))
 }
 
+function isOverdue(task: TaskRecord) {
+  if (!task.due_date || task.status === 'done') return false
+  const dueDay = new Date(task.due_date)
+  const today = new Date()
+  dueDay.setHours(0, 0, 0, 0)
+  today.setHours(0, 0, 0, 0)
+  return dueDay < today
+}
+
 export default function TaskDashboard() {
   const { user, signOut } = useAuth()
   const [tasks, setTasks] = useState<TaskRecord[]>([])
@@ -79,9 +88,16 @@ export default function TaskDashboard() {
         const params: Record<string, string | number> = { limit: 100 }
         if (filter !== 'all') params.status = filter
         if (search.trim()) params.q = search.trim()
-        const response = await api.get<{ data: TaskRecord[] }>('/tasks', { params })
+        const loadedTasks: TaskRecord[] = []
+        let cursor: string | null = null
+        do {
+          if (cursor) params.cursor = cursor
+          const response = await api.get<{ data: TaskRecord[]; next_cursor: string | null }>('/tasks', { params })
+          loadedTasks.push(...response.data.data)
+          cursor = response.data.next_cursor
+        } while (cursor && active)
         if (active) {
-          setTasks(response.data.data)
+          setTasks(loadedTasks)
           setError('')
         }
       } catch (loadError) {
@@ -145,6 +161,22 @@ export default function TaskDashboard() {
     { todo: 0, in_progress: 0, done: 0 },
   )
   const canDelete = user?.role === 'manager' || user?.role === 'admin'
+  const canCreate = user?.role === 'user' || user?.role === 'admin'
+  const boardTitle = user?.role === 'manager'
+    ? 'Organization tasks'
+    : user?.role === 'admin'
+      ? 'All tasks'
+      : 'My tasks'
+  const boardEyebrow = user?.role === 'manager'
+    ? 'ORGANIZATION WORKSPACE'
+    : user?.role === 'admin'
+      ? 'GLOBAL TASK OVERVIEW'
+      : 'YOUR PERSONAL BOARD'
+  const boardDescription = user?.role === 'manager'
+    ? 'A shared view of work across your organization.'
+    : user?.role === 'admin'
+      ? 'Tasks across every organization, in one view.'
+      : 'One clear next step at a time.'
 
   return (
     <main className="workspace-page">
@@ -155,7 +187,7 @@ export default function TaskDashboard() {
         <div className="rail-divider" />
         <div className="rail-section-label">WORKSPACE</div>
         <a className="rail-link rail-link-active" href="/" aria-current="page">
-          <ClipboardList size={18} /><span>My tasks</span><span className="rail-link-count">{tasks.length}</span>
+          <ClipboardList size={18} /><span>{boardTitle}</span><span className="rail-link-count">{tasks.length}</span>
         </a>
         <div className="rail-lower">
           <div className="rail-tip">
@@ -174,21 +206,23 @@ export default function TaskDashboard() {
 
       <section className="workspace-main">
         <header className="workspace-header">
-          <div className="breadcrumb"><span>Workspace</span><span>/</span><strong>My tasks</strong></div>
+          <div className="breadcrumb"><span>Workspace</span><span>/</span><strong>{boardTitle}</strong></div>
           <div className="header-date">A good day to make progress <span>✳</span></div>
         </header>
 
         <div className="workspace-content">
           <div className="page-title-row">
             <div>
-              <p className="eyebrow">YOUR PERSONAL BOARD</p>
-              <h1>My tasks<span className="title-period">.</span></h1>
-              <p className="page-subtitle">One clear next step at a time.</p>
+              <p className="eyebrow">{boardEyebrow}</p>
+              <h1>{boardTitle}<span className="title-period">.</span></h1>
+              <p className="page-subtitle">{boardDescription}</p>
             </div>
-            <button className="primary-button add-task-button" type="button" onClick={() => setComposerOpen((open) => !open)}>
-              {composerOpen ? <X size={17} /> : <Plus size={18} />}
-              {composerOpen ? 'Close' : 'New task'}
-            </button>
+            {canCreate && (
+              <button className="primary-button add-task-button" type="button" onClick={() => setComposerOpen((open) => !open)}>
+                {composerOpen ? <X size={17} /> : <Plus size={18} />}
+                {composerOpen ? 'Close' : 'New task'}
+              </button>
+            )}
           </div>
 
           <div className="summary-strip" aria-label="Task totals">
@@ -200,7 +234,7 @@ export default function TaskDashboard() {
             <span className="summary-spark">✳</span>
           </div>
 
-          {composerOpen && (
+          {composerOpen && canCreate && (
             <form className="task-composer" onSubmit={addTask}>
               <label className="sr-only" htmlFor="new-task-title">Task title</label>
               <input
@@ -254,14 +288,14 @@ export default function TaskDashboard() {
           ) : tasks.length === 0 ? (
             <div className="task-empty">
               <span className="empty-mark"><Check size={20} /></span>
-              <h2>{search ? 'No matching tasks' : 'A clear board.'}</h2>
-              <p>{search ? 'Try a different search, or clear the filter.' : 'Add the first task and give your focus somewhere to land.'}</p>
-              {!search && <button type="button" className="text-action" onClick={() => setComposerOpen(true)}>Create your first task <ArrowRight size={15} /></button>}
+              <h2>{search ? 'No matching tasks' : user?.role === 'manager' ? 'No organization tasks yet.' : 'A clear board.'}</h2>
+              <p>{search ? 'Try a different search, or clear the filter.' : canCreate ? 'Add the first task and give your focus somewhere to land.' : 'There are no tasks in your organization yet.'}</p>
+              {!search && canCreate && <button type="button" className="text-action" onClick={() => setComposerOpen(true)}>Create your first task <ArrowRight size={15} /></button>}
             </div>
           ) : (
             <div className="task-list">
               {tasks.map((task, index) => (
-                <article className={`task-row task-row-${task.status}`} key={taskId(task)} style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}>
+                <article className={`task-row task-row-${task.status}${isOverdue(task) ? ' task-row-overdue' : ''}`} key={taskId(task)} style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}>
                   <div className="task-title-cell">
                     <span className={`task-check task-check-${task.status}`} aria-hidden="true">{task.status === 'done' && <Check size={13} />}</span>
                     <div className="task-title-copy">
@@ -278,7 +312,11 @@ export default function TaskDashboard() {
                       {filters.slice(1).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                     </select>
                   </label>
-                  <div className="task-updated-cell">{formattedDate(task.due_date) ? `Due ${formattedDate(task.due_date)}` : '—'}</div>
+                  <div className={`task-updated-cell${isOverdue(task) ? ' task-overdue-label' : ''}`}>
+                    {formattedDate(task.due_date)
+                      ? <>{isOverdue(task) ? 'Overdue · ' : 'Due '}{formattedDate(task.due_date)}</>
+                      : '—'}
+                  </div>
                   <div className="task-action-cell">
                     {canDelete && (
                       <button className="icon-button delete-task-button" type="button" title="Delete task" aria-label={`Delete ${task.title}`} onClick={() => void deleteTask(task)}>
