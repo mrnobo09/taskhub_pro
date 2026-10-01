@@ -19,10 +19,29 @@ def create_access_token(data: dict) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
-    payload.update({"exp": expire})
+    payload.update({"exp": expire, "token_type": "access"})
     return jwt.encode(
         payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM
     )
+
+
+def create_refresh_token(data: dict) -> str:
+    payload = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(
+        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+    )
+    payload.update({"exp": expire, "token_type": "refresh"})
+    return jwt.encode(
+        payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM
+    )
+
+
+def create_token_pair(data: dict) -> dict[str, str]:
+    return {
+        "access_token": create_access_token(data),
+        "refresh_token": create_refresh_token(data),
+        "token_type": "bearer",
+    }
 
 
 def decode_token(token: str) -> dict | None:

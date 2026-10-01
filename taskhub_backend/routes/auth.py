@@ -1,23 +1,21 @@
 from db.db import get_db
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
-from models.user import User
-from schemas.auth import TokenResponse, UserLogin, UserOut, UserRegister
-from services import auth_service
+from models.User import User, UserRole
+from schema.auth import RefreshRequest, TokenResponse, UserLogin, UserOut, UserRegister
+from service import auth as auth_service
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 oauth2 = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
-def current_user(
-    token: str = Depends(oauth2), db: Session = Depends(get_db)
-) -> User:
+def current_user(token: str = Depends(oauth2), db: Session = Depends(get_db)) -> User:
     data = auth_service.decode_token(token)
+    if not data or data.get("token_type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
     user = (
         db.query(User).filter(User.email == data.get("sub")).first()
-        if data
-        else None
     )
     if not user:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -32,8 +30,8 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
     user = User(
         email=body.email,
         hashed_password=auth_service.hash_password(body.password),
-        role=body.role,
-        org_id=body.org_id,
+        role=UserRole.USER,
+        org_id=None,
     )
     db.add(user)
     db.commit()
@@ -51,10 +49,24 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
             status_code=401, detail="Invalid email or password"
         )
 
-    token = auth_service.create_access_token(
+    return auth_service.create_token_pair(
         {"sub": user.email, "role": user.role.value, "org_id": user.org_id}
     )
-    return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
+    data = auth_service.decode_token(body.refresh_token)
+    if not data or data.get("token_type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    user = db.query(User).filter(User.email == data.get("sub")).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    return auth_service.create_token_pair(
+        {"sub": user.email, "role": user.role.value, "org_id": user.org_id}
+    )
 
 
 @router.get("/me", response_model=UserOut)
