@@ -61,6 +61,7 @@ export default function TaskDashboard() {
   const [search, setSearch] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
   const [newTitle, setNewTitle] = useState('')
+  const [newDueDate, setNewDueDate] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -123,9 +124,11 @@ export default function TaskDashboard() {
         status: 'todo',
         priority: 'medium',
         tags: [],
+        due_date: newDueDate ? `${newDueDate}T23:59:59` : null,
       })
       setTasks((current) => [response.data, ...current])
       setNewTitle('')
+      setNewDueDate('')
       setComposerOpen(false)
     } catch (createError) {
       setError(apiErrorMessage(createError, 'This task could not be created.'))
@@ -246,6 +249,14 @@ export default function TaskDashboard() {
                 value={newTitle}
                 onChange={(event) => setNewTitle(event.target.value)}
                 required
+              />
+              <label className="composer-date-label" htmlFor="new-task-due-date">Due</label>
+              <input
+                id="new-task-due-date"
+                className="composer-date-input"
+                type="date"
+                value={newDueDate}
+                onChange={(event) => setNewDueDate(event.target.value)}
               />
               <span className="composer-hint">New tasks start in To do</span>
               <button className="primary-button composer-submit" type="submit" disabled={saving || !newTitle.trim()}>
